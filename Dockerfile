@@ -1,20 +1,20 @@
-# Imagen base oficial de Python compatible con Azure Functions
-FROM mcr.microsoft.com/azure-functions/python:4-python312
+# Imagen base de Python
+FROM python:3.12-slim
 
-# Establece el directorio de trabajo dentro del contenedor
+# Crea y define el directorio de trabajo
 WORKDIR /app
 
-# Copia todos los archivos al contenedor
+# Copia los archivos necesarios
 COPY . /app
 
-# Instala dependencias Python
+# Instala las dependencias
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Da permisos de ejecución a los binarios de ffmpeg
+# Da permisos de ejecución a ffmpeg
 RUN chmod +x /app/ffmpeg/ffmpeg /app/ffmpeg/ffprobe
 
-# Expone el puerto usado por Azure Functions (no se necesita cambiar nada aquí)
+# Expone el puerto si tu app lo requiere (solo si usas Flask/FastAPI, por ejemplo)
 EXPOSE 80
 
-# Comando para iniciar el runtime de Azure Functions
-CMD ["python", "-m", "azure_functions_worker"]
+# Ejecuta el script principal de tu aplicación
+CMD ["python", "function_app.py"]
