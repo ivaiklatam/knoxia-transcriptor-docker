@@ -8,28 +8,29 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: 📦 Checkout del repositorio
+      - name: ⏬ Checkout del código fuente
         uses: actions/checkout@v3
 
-      - name: 🔐 Login a Azure
+      - name: 🔐 Login en Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: 🐳 Login al Azure Container Registry (ACR)
+      - name: 🔐 Login en Azure Container Registry (ACR)
         uses: azure/container-registry-actions/docker-login@v1
         with:
           login-server: knoxiacr.azurecr.io
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
-      - name: 🏗️ Build y Push de imagen Docker a ACR
+      - name: 🛠️ Build y Push de la imagen a ACR
         run: |
           docker build -t knoxiacr.azurecr.io/knoxia-transcriptor:latest .
           docker push knoxiacr.azurecr.io/knoxia-transcriptor:latest
 
-      - name: 🚀 Despliegue en Azure Container App
+      - name: 🚀 Desplegar imagen a Azure Container App
         uses: azure/container-apps-deploy-action@v2
         with:
           imageToDeploy: knoxiacr.azurecr.io/knoxia-transcriptor:latest
