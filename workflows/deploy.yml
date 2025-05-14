@@ -1,4 +1,4 @@
-name: Build and Deploy Knoxia Transcriptor
+name: Build and Push to ACR
 
 on:
   push:
@@ -6,39 +6,23 @@ on:
       - main
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-      - name: ⏬ Checkout del código fuente
+      - name: Checkout source
         uses: actions/checkout@v3
 
-      - name: 🔐 Login en Azure
-        uses: azure/login@v1
+      - name: Login to Azure Container Registry
+        uses: docker/login-action@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: 🔐 Login en Azure Container Registry (ACR)
-        uses: azure/container-registry-actions/docker-login@v1
-        with:
-          login-server: knoxiacr.azurecr.io
+          registry: knoxiacr.azurecr.io
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
-      - name: 🛠️ Build y Push de la imagen a ACR
-        run: |
-          docker build -t knoxiacr.azurecr.io/knoxia-transcriptor:latest .
-          docker push knoxiacr.azurecr.io/knoxia-transcriptor:latest
-
-      - name: 🚀 Desplegar imagen a Azure Container App
-        uses: azure/container-apps-deploy-action@v2
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
         with:
-          imageToDeploy: knoxiacr.azurecr.io/knoxia-transcriptor:latest
-          registryUrl: knoxiacr.azurecr.io
-          registryUsername: ${{ secrets.ACR_USERNAME }}
-          registryPassword: ${{ secrets.ACR_PASSWORD }}
-          containerAppName: knoxia-function-docker
-          resourceGroup: knoxia-rg
-          containerAppEnvironment: managedEnvironment-knoxiarg-a513
-          targetPort: 80
-          ingress: external
+          context: .
+          push: true
+          tags: knoxiacr.azurecr.io/knoxia-transcriptor:latest
