@@ -8,23 +8,24 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+      - name: 🧾 Checkout del código
         uses: actions/checkout@v3
 
-      - name: Login to Azure
+      - name: 🔐 Login a Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Build and push image to ACR
-        uses: azure/container-registry-actions/docker-login@v1
+      - name: 🔐 Login a Azure Container Registry
+        uses: azure/docker-login@v1
         with:
           login-server: knoxiacr.azurecr.io
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
-      - name: Build and push
+      - name: 🏗️ Build y Push a ACR
         run: |
-          docker build -t knoxiacr.azurecr.io/knoxia-transcriptor:latest .
-          docker push knoxiacr.azurecr.io/knoxia-transcriptor:latest
+          docker build -t knoxiacr.azurecr.io/knoxia-transcriptor:${{ github.sha }} .
+          docker push knoxiacr.azurecr.io/knoxia-transcriptor:${{ github.sha }}
