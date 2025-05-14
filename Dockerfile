@@ -1,5 +1,5 @@
 # Imagen base oficial de Python compatible con Azure Functions
-FROM mcr.microsoft.com/azure-functions/python:4-python312
+FROM mcr.microsoft.com/azure-functions/python:4-python3.12
 
 # Establece el directorio de trabajo dentro del contenedor
 WORKDIR /app
