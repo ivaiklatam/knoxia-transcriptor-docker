@@ -1,5 +1,4 @@
-# main.py
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
 import azure.cognitiveservices.speech as speechsdk
 import requests
@@ -7,20 +6,25 @@ import os
 import subprocess
 import stat
 import logging
+from urllib.parse import urlparse, unquote
 
-app = FastAPI(title="Knoxia Transcription API", version="2.1")
+app = FastAPI(title="Knoxia Transcription API", version="2.2")
 
 @app.get("/transcribe")
 def transcribe(url: str):
-    logging.info("🧠 Knoxia v2.1 – Inicio de función de transcripción")
+    logging.info("🧠 Knoxia v2.2 – Inicio de función de transcripción")
 
     try:
-        ext = os.path.splitext(url)[-1].lower()
+        parsed = urlparse(url)
+        path = parsed.path
+        ext = os.path.splitext(path)[-1].lower()
+
         if ext not in [".mp3", ".wav"]:
             raise HTTPException(status_code=415, detail="Formato no soportado. Solo .mp3 o .wav")
 
         logging.info(f"🔗 Descargando archivo desde URL: {url}")
         response = requests.get(url)
+        response.raise_for_status()
         audio_data = response.content
 
         temp_input = "/tmp/input" + ext
