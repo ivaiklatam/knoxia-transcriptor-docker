@@ -19,8 +19,8 @@ def transcribe(url: str):
         path = parsed.path
         ext = os.path.splitext(path)[-1].lower()
 
-        if ext not in [".mp3", ".wav"]:
-            raise HTTPException(status_code=415, detail="Formato no soportado. Solo .mp3 o .wav")
+        if ext not in [".mp3", ".wav", ".webm"]:
+            raise HTTPException(status_code=415, detail="Formato no soportado. Solo .mp3, .wav o .webm")
 
         logging.info(f"🔗 Descargando archivo desde URL: {url}")
         response = requests.get(url)
@@ -31,8 +31,8 @@ def transcribe(url: str):
         with open(temp_input, "wb") as f:
             f.write(audio_data)
 
-        if ext == ".mp3":
-            logging.info("🎛️ Detectado archivo MP3. Iniciando conversión con ffmpeg...")
+        if ext in [".mp3", ".webm"]:
+            logging.info(f"🎛️ Detectado archivo {ext.upper()}. Iniciando conversión con ffmpeg...")
             temp_wav = "/tmp/converted.wav"
             ffmpeg_path = os.path.join(os.getcwd(), "ffmpeg", "ffmpeg")
 
@@ -53,7 +53,7 @@ def transcribe(url: str):
                 audio_path = temp_wav
             except subprocess.CalledProcessError as e:
                 logging.error(f"❌ Error durante conversión con ffmpeg: {e.stderr.decode()}")
-                raise HTTPException(status_code=500, detail="Error convirtiendo archivo MP3")
+                raise HTTPException(status_code=500, detail=f"Error convirtiendo archivo {ext.upper()}")
         else:
             logging.info("📥 Archivo WAV detectado, se usará directamente")
             audio_path = temp_input
