@@ -93,16 +93,25 @@ def transcribe(url: str):
 
 
 @app.post("/run-indexer")
-def run_indexer(request: Request):
-    logging.info("🚀 Iniciando ejecución manual del indexador Knoxia")
+async def run_indexer_eventgrid(request: Request):
+    import json
 
+    body = await request.json()
+    logging.info("📥 Solicitud recibida en /run-indexer")
+
+    # 1. Validación de Event Grid (handshake inicial)
+    if body and isinstance(body, list):
+        event = body[0]
+        if event.get("eventType") == "Microsoft.EventGrid.SubscriptionValidationEvent":
+            validation_code = event.get("data", {}).get("validationCode")
+            logging.info(f"🧾 Validación de Event Grid detectada: {validation_code}")
+            return JSONResponse(content={"validationResponse": validation_code})
+
+    # 2. Lógica normal del indexador
     try:
         indexer_name = "knoxia-blob-indexer"
         search_service_endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
         search_admin_key = os.environ["AZURE_SEARCH_KEY"]
-
-        if not search_service_endpoint or not search_admin_key:
-            raise ValueError("❌ Variables de entorno de Azure Search no definidas")
 
         url = f"{search_service_endpoint}/indexers/{indexer_name}/run?api-version=2023-07-01-Preview"
         headers = {
@@ -110,7 +119,7 @@ def run_indexer(request: Request):
             "api-key": search_admin_key
         }
 
-        logging.info(f"📡 Ejecutando indexador en: {url}")
+        logging.info(f"🚀 Ejecutando indexador en: {url}")
         response = requests.post(url, headers=headers)
         response.raise_for_status()
 
@@ -122,5 +131,5 @@ def run_indexer(request: Request):
         return JSONResponse({"error": "Error al ejecutar el indexador", "details": http_err.response.text}, status_code=500)
 
     except Exception as e:
-        logging.exception("🔥 Excepción general ejecutando indexador")
+        logging.exception("🔥 Error inesperado en /run-indexer")
         return JSONResponse({"error": "Error inesperado ejecutando indexador", "details": str(e)}, status_code=500)
