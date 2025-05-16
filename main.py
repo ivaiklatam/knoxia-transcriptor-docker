@@ -1,5 +1,5 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import PlainTextResponse, JSONResponse
 import azure.cognitiveservices.speech as speechsdk
 import requests
 import os
@@ -90,3 +90,37 @@ def transcribe(url: str):
     except Exception as e:
         logging.exception("🔥 Excepción general durante la transcripción")
         raise HTTPException(status_code=500, detail=f"Error procesando audio: {str(e)}")
+
+
+@app.post("/run-indexer")
+def run_indexer(request: Request):
+    logging.info("🚀 Iniciando ejecución manual del indexador Knoxia")
+
+    try:
+        indexer_name = "knoxia-blob-indexer"
+        search_service_endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
+        search_admin_key = os.environ["AZURE_SEARCH_KEY"]
+
+        if not search_service_endpoint or not search_admin_key:
+            raise ValueError("❌ Variables de entorno de Azure Search no definidas")
+
+        url = f"{search_service_endpoint}/indexers/{indexer_name}/run?api-version=2023-07-01-Preview"
+        headers = {
+            "Content-Type": "application/json",
+            "api-key": search_admin_key
+        }
+
+        logging.info(f"📡 Ejecutando indexador en: {url}")
+        response = requests.post(url, headers=headers)
+        response.raise_for_status()
+
+        logging.info("✅ Indexador ejecutado exitosamente")
+        return JSONResponse({"message": "Indexador ejecutado exitosamente"}, status_code=200)
+
+    except requests.HTTPError as http_err:
+        logging.error(f"❌ Error HTTP al ejecutar indexador: {http_err.response.text}")
+        return JSONResponse({"error": "Error al ejecutar el indexador", "details": http_err.response.text}, status_code=500)
+
+    except Exception as e:
+        logging.exception("🔥 Excepción general ejecutando indexador")
+        return JSONResponse({"error": "Error inesperado ejecutando indexador", "details": str(e)}, status_code=500)

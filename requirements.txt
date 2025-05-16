@@ -6,3 +6,5 @@ fastapi
 uvicorn
 azure-cognitiveservices-speech
 requests
+pyodbc
+azure-search-documents
