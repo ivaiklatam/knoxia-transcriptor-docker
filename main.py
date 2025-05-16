@@ -7,6 +7,8 @@ import subprocess
 import stat
 import logging
 from urllib.parse import urlparse, unquote
+from azure.search.documents import SearchClient
+import pyodbc
 
 app = FastAPI(title="Knoxia Transcription API", version="2.2")
 
@@ -133,3 +135,83 @@ async def run_indexer_eventgrid(request: Request):
     except Exception as e:
         logging.exception("🔥 Error inesperado en /run-indexer")
         return JSONResponse({"error": "Error inesperado ejecutando indexador", "details": str(e)}, status_code=500)
+
+@app.post("/sync-search-to-sql")
+def sync_search_to_sql():
+    try:
+        # Configuración de Azure Search
+        endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
+        key = os.environ["AZURE_SEARCH_KEY"]
+        index = os.environ["AZURE_SEARCH_INDEX"]
+
+        search_client = SearchClient(endpoint=endpoint, index_name=index, credential=key)
+        results = search_client.search(search_text="*", top=1000)
+
+        # Configuración de SQL
+        conn = pyodbc.connect(os.environ["AZURE_SQL_CONNECTION_STRING"])
+        cursor = conn.cursor()
+
+        insertados = 0
+        actualizados = 0
+
+        for doc in results:
+            doc_id = doc.get("id")
+            content = doc.get("content", "")
+            created_at = doc.get("created_at")
+            tags = doc.get("tags", [])
+            key_phrases = doc.get("keyPhrases", [])
+
+            # Verificar si ya existe en la tabla
+            cursor.execute("SELECT COUNT(*) FROM Documentos WHERE url_blob = ?", doc_id)
+            exists = cursor.fetchone()[0] > 0
+
+            if not exists:
+                cursor.execute("""
+                    INSERT INTO Documentos (nombre, descripcion, url_blob, fecha_cargue)
+                    VALUES (?, ?, ?, GETDATE())
+                """, "Autoimportado", content[:200], doc_id)
+                insertados += 1
+            else:
+                cursor.execute("""
+                    UPDATE Documentos SET descripcion = ?
+                    WHERE url_blob = ?
+                """, content[:200], doc_id)
+                actualizados += 1
+
+            # Obtener ID del documento
+            cursor.execute("SELECT id FROM Documentos WHERE url_blob = ?", doc_id)
+            doc_row = cursor.fetchone()
+            if doc_row:
+                documento_id = doc_row[0]
+
+                # Insertar etiquetas
+                for tag in tags + key_phrases:
+                    cursor.execute("""
+                        SELECT id FROM Parametros WHERE nombre = ?
+                    """, tag)
+                    param = cursor.fetchone()
+
+                    if param:
+                        parametro_id = param[0]
+                        cursor.execute("""
+                            SELECT COUNT(*) FROM Documento_Etiquetas
+                            WHERE documento_id = ? AND parametro_id = ?
+                        """, documento_id, parametro_id)
+                        if cursor.fetchone()[0] == 0:
+                            cursor.execute("""
+                                INSERT INTO Documento_Etiquetas (documento_id, parametro_id)
+                                VALUES (?, ?)
+                            """, documento_id, parametro_id)
+
+        conn.commit()
+        conn.close()
+
+        return JSONResponse({
+            "message": "Sincronización completada",
+            "documentos_nuevos": insertados,
+            "documentos_actualizados": actualizados
+        })
+
+    except Exception as e:
+        logging.exception("🔥 Error sincronizando índice con SQL")
+        raise HTTPException(status_code=500, detail=f"Error sincronizando: {str(e)}")
