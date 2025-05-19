@@ -145,7 +145,7 @@ def sync_search_to_sql():
         index = os.environ["AZURE_SEARCH_INDEX"]
 
         search_client = SearchClient(endpoint=endpoint, index_name=index, credential=key)
-        results = search_client.search(search_text="*", top=1000)
+        results = search_client.search(search_text="*", top=5)
 
         # Configuración de SQL
         conn = pyodbc.connect(os.environ["AZURE_SQL_CONNECTION_STRING"])
