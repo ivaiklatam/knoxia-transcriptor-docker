@@ -151,7 +151,7 @@ def sync_search_to_sql():
             index_name=index,
             credential=AzureKeyCredential(key)
         )
-        results = search_client.search(search_text="*", top=1000)
+        results = search_client.search(search_text="*", top=50)
 
         # Configuración de SQL
         conn = pyodbc.connect(os.environ["AZURE_SQL_CONNECTION_STRING"])
@@ -162,34 +162,33 @@ def sync_search_to_sql():
 
         for doc in results:
             doc_id = doc.get("id")
-            descripcion = (doc.get("content") or "")[:255]
-            titulo = (doc.get("title") or "")[:500]
-            resumen = (doc.get("summary") or "")[:1000]
-            idioma = doc.get("language") or ""
-            etiquetas = ";".join(doc.get("tags", []))
-            palabras_clave = ";".join(doc.get("keyPhrases", []))
-            fecha_creacion = doc.get("created_at")
+            content = doc.get("content", "")
+            created_at = doc.get("created_at")
+            title = doc.get("title")
+            summary = doc.get("summary")
+            language = doc.get("language")
+            key_phrases = doc.get("keyPhrases", [])
+            tags = doc.get("tags", [])
 
-            # Verificar si ya existe
+            palabras_clave = ";".join(key_phrases)[:2000]
+            etiquetas = ";".join(tags)[:255]
+
+            # Verificar si ya existe en la tabla
             cursor.execute("SELECT COUNT(*) FROM Documentos WHERE url_blob = ?", doc_id)
             exists = cursor.fetchone()[0] > 0
 
             if not exists:
                 cursor.execute("""
-                    INSERT INTO Documentos (
-                        nombre, descripcion, url_blob, titulo, resumen, idioma,
-                        etiquetas, palabras_clave, fecha_cargue
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, GETDATE())
-                """, "Autoimportado", descripcion, doc_id, titulo, resumen, idioma, etiquetas, palabras_clave)
+                    INSERT INTO Documentos (nombre, descripcion, url_blob, fecha_cargue, idioma, resumen, titulo, palabras_clave, etiquetas)
+                    VALUES (?, ?, ?, GETDATE(), ?, ?, ?, ?, ?)
+                """, "Autoimportado", content[:255], doc_id, language, summary[:1000] if summary else None, title[:500] if title else None, palabras_clave, etiquetas)
                 insertados += 1
             else:
                 cursor.execute("""
-                    UPDATE Documentos
-                    SET descripcion = ?, titulo = ?, resumen = ?, idioma = ?,
-                        etiquetas = ?, palabras_clave = ?, fecha_modificacion = GETDATE()
+                    UPDATE Documentos 
+                    SET descripcion = ?, idioma = ?, resumen = ?, titulo = ?, palabras_clave = ?, etiquetas = ?, fecha_modificacion = GETDATE()
                     WHERE url_blob = ?
-                """, descripcion, titulo, resumen, idioma, etiquetas, palabras_clave, doc_id)
+                """, content[:255], language, summary[:1000] if summary else None, title[:500] if title else None, palabras_clave, etiquetas, doc_id)
                 actualizados += 1
 
         conn.commit()
