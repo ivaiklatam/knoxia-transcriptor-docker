@@ -9,6 +9,8 @@ import logging
 from urllib.parse import urlparse, unquote
 from azure.search.documents import SearchClient
 import pyodbc
+from azure.core.credentials import AzureKeyCredential
+
 
 app = FastAPI(title="Knoxia Transcription API", version="2.2")
 
@@ -144,7 +146,7 @@ def sync_search_to_sql():
         key = os.environ["AZURE_SEARCH_KEY"]
         index = os.environ["AZURE_SEARCH_INDEX"]
 
-        search_client = SearchClient(endpoint=endpoint, index_name=index, credential=key)
+        search_client = SearchClient(endpoint=endpoint, index_name=index, credential=AzureKeyCredential(key))
         results = search_client.search(search_text="*", top=5)
 
         # Configuración de SQL
