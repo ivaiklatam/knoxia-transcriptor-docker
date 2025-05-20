@@ -10,7 +10,8 @@ from urllib.parse import urlparse, unquote
 from azure.search.documents import SearchClient
 import pyodbc
 from azure.core.credentials import AzureKeyCredential
-
+import time
+import base64
 
 app = FastAPI(title="Knoxia Transcription API", version="2.2")
 
@@ -103,7 +104,6 @@ async def run_indexer_eventgrid(request: Request):
     body = await request.json()
     logging.info("📥 Solicitud recibida en /run-indexer")
 
-    # 1. Validación de Event Grid (handshake inicial)
     if body and isinstance(body, list):
         event = body[0]
         if event.get("eventType") == "Microsoft.EventGrid.SubscriptionValidationEvent":
@@ -111,7 +111,6 @@ async def run_indexer_eventgrid(request: Request):
             logging.info(f"🧾 Validación de Event Grid detectada: {validation_code}")
             return JSONResponse(content={"validationResponse": validation_code})
 
-    # 2. Lógica normal del indexador
     try:
         indexer_name = "knoxia-blob-indexer"
         search_service_endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
@@ -127,8 +126,13 @@ async def run_indexer_eventgrid(request: Request):
         response = requests.post(url, headers=headers)
         response.raise_for_status()
 
-        logging.info("✅ Indexador ejecutado exitosamente")
-        return JSONResponse({"message": "Indexador ejecutado exitosamente"}, status_code=200)
+        logging.info("✅ Indexador ejecutado exitosamente. Esperando 120 segundos...")
+        time.sleep(120)
+
+        logging.info("🔁 Ejecutando sincronización incremental...")
+        sync_response = sync_search_to_sql()
+
+        return sync_response
 
     except requests.HTTPError as http_err:
         logging.error(f"❌ Error HTTP al ejecutar indexador: {http_err.response.text}")
@@ -138,11 +142,11 @@ async def run_indexer_eventgrid(request: Request):
         logging.exception("🔥 Error inesperado en /run-indexer")
         return JSONResponse({"error": "Error inesperado ejecutando indexador", "details": str(e)}, status_code=500)
 
+
 @app.post("/sync-search-to-sql")
 def sync_search_to_sql():
     import re
     try:
-        # Azure Search
         endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
         key = os.environ["AZURE_SEARCH_KEY"]
         index = os.environ["AZURE_SEARCH_INDEX"]
@@ -151,11 +155,19 @@ def sync_search_to_sql():
             index_name=index,
             credential=AzureKeyCredential(key)
         )
-        results = search_client.search(search_text="*", top=50)
 
-        # SQL
         conn = pyodbc.connect(os.environ["AZURE_SQL_CONNECTION_STRING"])
         cursor = conn.cursor()
+
+        cursor.execute("SELECT TOP 1 ultima_fecha_sync FROM Sync_Status WHERE nombre_proceso = 'azure-search-to-sql' ORDER BY fecha_ejecucion DESC")
+        row = cursor.fetchone()
+        last_sync = row[0].isoformat() if row else None
+
+        query = "*"
+        if last_sync:
+            query = f"created_at gt {last_sync}"
+
+        results = search_client.search(search_text=query, top=50)
 
         insertados = 0
         actualizados = 0
@@ -173,7 +185,6 @@ def sync_search_to_sql():
             palabras_clave = ";".join(key_phrases)[:2000]
             etiquetas = ";".join(tags)[:255]
 
-            # Derivar nombre desde ID
             try:
                 raw_url = doc_id.encode("ascii")
                 decoded = base64.urlsafe_b64decode(raw_url + b'=' * (-len(raw_url) % 4)).decode()
@@ -182,7 +193,6 @@ def sync_search_to_sql():
             except Exception:
                 nombre = "Autoimportado"
 
-            # Verificar existencia
             cursor.execute("SELECT COUNT(*) FROM Documentos WHERE url_blob = ?", doc_id)
             exists = cursor.fetchone()[0] > 0
 
@@ -200,6 +210,11 @@ def sync_search_to_sql():
                     WHERE url_blob = ?
                 """, content, language[:10], summary[:1000], title[:500], palabras_clave, etiquetas, doc_id)
                 actualizados += 1
+
+        cursor.execute("""
+            INSERT INTO Sync_Status (nombre_proceso, ultima_fecha_sync, estado, detalles)
+            VALUES (?, GETDATE(), ?, ?)
+        """, "azure-search-to-sql", "OK", f"{insertados} nuevos, {actualizados} actualizados")
 
         conn.commit()
         conn.close()
