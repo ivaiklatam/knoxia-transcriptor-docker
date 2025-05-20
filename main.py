@@ -141,13 +141,19 @@ async def run_indexer_eventgrid(request: Request):
 @app.post("/sync-search-to-sql")
 def sync_search_to_sql():
     try:
+        from azure.core.credentials import AzureKeyCredential
+
         # Configuración de Azure Search
         endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
         key = os.environ["AZURE_SEARCH_KEY"]
         index = os.environ["AZURE_SEARCH_INDEX"]
 
-        search_client = SearchClient(endpoint=endpoint, index_name=index, credential=AzureKeyCredential(key))
-        results = search_client.search(search_text="*", top=5)
+        search_client = SearchClient(
+            endpoint=endpoint,
+            index_name=index,
+            credential=AzureKeyCredential(key)
+        )
+        results = search_client.search(search_text="*", top=1000)
 
         # Configuración de SQL
         conn = pyodbc.connect(os.environ["AZURE_SQL_CONNECTION_STRING"])
@@ -159,9 +165,15 @@ def sync_search_to_sql():
         for doc in results:
             doc_id = doc.get("id")
             content = doc.get("content", "")
+            title = doc.get("title")
+            summary = doc.get("summary")
+            language = doc.get("language")
             created_at = doc.get("created_at")
             tags = doc.get("tags", [])
             key_phrases = doc.get("keyPhrases", [])
+
+            descripcion = content.strip()[:1000] if content else None
+            palabras_clave = ", ".join(tags + key_phrases)[:255] if (tags or key_phrases) else None
 
             # Verificar si ya existe en la tabla
             cursor.execute("SELECT COUNT(*) FROM Documentos WHERE url_blob = ?", doc_id)
@@ -169,30 +181,28 @@ def sync_search_to_sql():
 
             if not exists:
                 cursor.execute("""
-                    INSERT INTO Documentos (nombre, descripcion, url_blob, fecha_cargue)
-                    VALUES (?, ?, ?, GETDATE())
-                """, "Autoimportado", content[:200], doc_id)
+                    INSERT INTO Documentos (nombre, descripcion, resumen, titulo, idioma, url_blob, palabras_clave, fecha_cargue)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())
+                """, "Autoimportado", descripcion, summary, title, language, doc_id, palabras_clave)
                 insertados += 1
             else:
                 cursor.execute("""
-                    UPDATE Documentos SET descripcion = ?
+                    UPDATE Documentos
+                    SET descripcion = ?, resumen = ?, titulo = ?, idioma = ?, palabras_clave = ?, fecha_modificacion = GETDATE()
                     WHERE url_blob = ?
-                """, content[:200], doc_id)
+                """, descripcion, summary, title, language, palabras_clave, doc_id)
                 actualizados += 1
 
             # Obtener ID del documento
             cursor.execute("SELECT id FROM Documentos WHERE url_blob = ?", doc_id)
-            doc_row = cursor.fetchone()
-            if doc_row:
-                documento_id = doc_row[0]
+            row = cursor.fetchone()
+            if row:
+                documento_id = row[0]
 
-                # Insertar etiquetas
+                # Insertar etiquetas si no existen
                 for tag in tags + key_phrases:
-                    cursor.execute("""
-                        SELECT id FROM Parametros WHERE nombre = ?
-                    """, tag)
+                    cursor.execute("SELECT id FROM Parametros WHERE nombre = ?", tag)
                     param = cursor.fetchone()
-
                     if param:
                         parametro_id = param[0]
                         cursor.execute("""
