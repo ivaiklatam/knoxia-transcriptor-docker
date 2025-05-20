@@ -141,18 +141,12 @@ async def run_indexer_eventgrid(request: Request):
 @app.post("/sync-search-to-sql")
 def sync_search_to_sql():
     try:
-        from azure.core.credentials import AzureKeyCredential
-
         # Configuración de Azure Search
         endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
         key = os.environ["AZURE_SEARCH_KEY"]
         index = os.environ["AZURE_SEARCH_INDEX"]
 
-        search_client = SearchClient(
-            endpoint=endpoint,
-            index_name=index,
-            credential=AzureKeyCredential(key)
-        )
+        search_client = SearchClient(endpoint=endpoint, index_name=index, credential=key)
         results = search_client.search(search_text="*", top=1000)
 
         # Configuración de SQL
@@ -164,56 +158,35 @@ def sync_search_to_sql():
 
         for doc in results:
             doc_id = doc.get("id")
-            content = doc.get("content", "")
-            title = doc.get("title")
-            summary = doc.get("summary")
-            language = doc.get("language")
-            created_at = doc.get("created_at")
-            tags = doc.get("tags", [])
-            key_phrases = doc.get("keyPhrases", [])
+            descripcion = (doc.get("content") or "")[:255]
+            titulo = (doc.get("title") or "")[:500]
+            resumen = (doc.get("summary") or "")[:1000]
+            idioma = doc.get("language") or ""
+            etiquetas = ";".join(doc.get("tags", []))
+            palabras_clave = ";".join(doc.get("keyPhrases", []))
+            fecha_creacion = doc.get("created_at")
 
-            descripcion = content.replace("\n", " ").replace("\r", " ").strip()[:1000] if content else None
-            palabras_clave = ", ".join(tags + key_phrases)[:255] if (tags or key_phrases) else None
-
-            # Verificar si ya existe en la tabla
+            # Verificar si ya existe
             cursor.execute("SELECT COUNT(*) FROM Documentos WHERE url_blob = ?", doc_id)
             exists = cursor.fetchone()[0] > 0
 
             if not exists:
                 cursor.execute("""
-                    INSERT INTO Documentos (nombre, descripcion, resumen, titulo, idioma, url_blob, palabras_clave, fecha_cargue)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())
-                """, "Autoimportado", descripcion, summary, title, language, doc_id, palabras_clave)
+                    INSERT INTO Documentos (
+                        nombre, descripcion, url_blob, titulo, resumen, idioma,
+                        etiquetas, palabras_clave, fecha_cargue
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, GETDATE())
+                """, "Autoimportado", descripcion, doc_id, titulo, resumen, idioma, etiquetas, palabras_clave)
                 insertados += 1
             else:
                 cursor.execute("""
                     UPDATE Documentos
-                    SET descripcion = ?, resumen = ?, titulo = ?, idioma = ?, palabras_clave = ?, fecha_modificacion = GETDATE()
+                    SET descripcion = ?, titulo = ?, resumen = ?, idioma = ?,
+                        etiquetas = ?, palabras_clave = ?, fecha_modificacion = GETDATE()
                     WHERE url_blob = ?
-                """, descripcion, summary, title, language, palabras_clave, doc_id)
+                """, descripcion, titulo, resumen, idioma, etiquetas, palabras_clave, doc_id)
                 actualizados += 1
-
-            # Obtener ID del documento
-            cursor.execute("SELECT id FROM Documentos WHERE url_blob = ?", doc_id)
-            row = cursor.fetchone()
-            if row:
-                documento_id = row[0]
-
-                # Insertar etiquetas si no existen
-                for tag in tags + key_phrases:
-                    cursor.execute("SELECT id FROM Parametros WHERE nombre = ?", tag)
-                    param = cursor.fetchone()
-                    if param:
-                        parametro_id = param[0]
-                        cursor.execute("""
-                            SELECT COUNT(*) FROM Documento_Etiquetas
-                            WHERE documento_id = ? AND parametro_id = ?
-                        """, documento_id, parametro_id)
-                        if cursor.fetchone()[0] == 0:
-                            cursor.execute("""
-                                INSERT INTO Documento_Etiquetas (documento_id, parametro_id)
-                                VALUES (?, ?)
-                            """, documento_id, parametro_id)
 
         conn.commit()
         conn.close()
