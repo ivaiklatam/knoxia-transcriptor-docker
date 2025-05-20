@@ -172,7 +172,7 @@ def sync_search_to_sql():
             tags = doc.get("tags", [])
             key_phrases = doc.get("keyPhrases", [])
 
-            descripcion = content.strip()[:1000] if content else None
+            descripcion = content.replace("\n", " ").replace("\r", " ").strip()[:1000] if content else None
             palabras_clave = ", ".join(tags + key_phrases)[:255] if (tags or key_phrases) else None
 
             # Verificar si ya existe en la tabla
