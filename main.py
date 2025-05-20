@@ -140,12 +140,12 @@ async def run_indexer_eventgrid(request: Request):
 
 @app.post("/sync-search-to-sql")
 def sync_search_to_sql():
+    import re
     try:
-        # Configuración de Azure Search
+        # Azure Search
         endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
         key = os.environ["AZURE_SEARCH_KEY"]
         index = os.environ["AZURE_SEARCH_INDEX"]
-
         search_client = SearchClient(
             endpoint=endpoint,
             index_name=index,
@@ -153,7 +153,7 @@ def sync_search_to_sql():
         )
         results = search_client.search(search_text="*", top=50)
 
-        # Configuración de SQL
+        # SQL
         conn = pyodbc.connect(os.environ["AZURE_SQL_CONNECTION_STRING"])
         cursor = conn.cursor()
 
@@ -162,33 +162,43 @@ def sync_search_to_sql():
 
         for doc in results:
             doc_id = doc.get("id")
-            content = doc.get("content", "")
+            content = doc.get("content", "")[:255]
             created_at = doc.get("created_at")
-            title = doc.get("title")
-            summary = doc.get("summary")
-            language = doc.get("language")
+            language = doc.get("language") or ""
+            title = doc.get("title") or ""
+            summary = doc.get("summary") or ""
             key_phrases = doc.get("keyPhrases", [])
             tags = doc.get("tags", [])
 
             palabras_clave = ";".join(key_phrases)[:2000]
             etiquetas = ";".join(tags)[:255]
 
-            # Verificar si ya existe en la tabla
+            # Derivar nombre desde ID
+            try:
+                raw_url = doc_id.encode("ascii")
+                decoded = base64.urlsafe_b64decode(raw_url + b'=' * (-len(raw_url) % 4)).decode()
+                nombre_archivo = re.findall(r"/([^/]+)$", decoded)
+                nombre = unquote(nombre_archivo[0]) if nombre_archivo else "Autoimportado"
+            except Exception:
+                nombre = "Autoimportado"
+
+            # Verificar existencia
             cursor.execute("SELECT COUNT(*) FROM Documentos WHERE url_blob = ?", doc_id)
             exists = cursor.fetchone()[0] > 0
 
             if not exists:
                 cursor.execute("""
-                    INSERT INTO Documentos (nombre, descripcion, url_blob, fecha_cargue, idioma, resumen, titulo, palabras_clave, etiquetas)
+                    INSERT INTO Documentos 
+                    (nombre, descripcion, url_blob, fecha_cargue, idioma, resumen, titulo, palabras_clave, etiquetas)
                     VALUES (?, ?, ?, GETDATE(), ?, ?, ?, ?, ?)
-                """, "Autoimportado", content[:255], doc_id, language, summary[:1000] if summary else None, title[:500] if title else None, palabras_clave, etiquetas)
+                """, nombre[:255], content, doc_id, language[:10], summary[:1000], title[:500], palabras_clave, etiquetas)
                 insertados += 1
             else:
                 cursor.execute("""
                     UPDATE Documentos 
                     SET descripcion = ?, idioma = ?, resumen = ?, titulo = ?, palabras_clave = ?, etiquetas = ?, fecha_modificacion = GETDATE()
                     WHERE url_blob = ?
-                """, content[:255], language, summary[:1000] if summary else None, title[:500] if title else None, palabras_clave, etiquetas, doc_id)
+                """, content, language[:10], summary[:1000], title[:500], palabras_clave, etiquetas, doc_id)
                 actualizados += 1
 
         conn.commit()
