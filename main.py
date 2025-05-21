@@ -143,6 +143,8 @@ async def run_indexer_eventgrid(request: Request):
         return JSONResponse({"error": "Error inesperado ejecutando indexador", "details": str(e)}, status_code=500)
 
 
+# 👇 Sustituye tu función sync_search_to_sql por esta nueva versión (el resto del archivo permanece igual)
+
 @app.post("/sync-search-to-sql")
 def sync_search_to_sql():
     import re
@@ -172,8 +174,11 @@ def sync_search_to_sql():
         insertados = 0
         actualizados = 0
 
+        documentos_procesados = []
+
         for doc in results:
             doc_id = doc.get("id")
+            documentos_procesados.append(doc_id)
             content = doc.get("content", "")[:255]
             created_at = doc.get("created_at")
             language = doc.get("language") or ""
@@ -211,10 +216,54 @@ def sync_search_to_sql():
                 """, content, language[:10], summary[:1000], title[:500], palabras_clave, etiquetas, doc_id)
                 actualizados += 1
 
+        # 👉 Embeddings
+        errores_embedding = []
+        for doc in results:
+            try:
+                doc_id = doc.get("id")
+                content = doc.get("content", "")
+                if not content:
+                    continue
+
+                # Obtener embedding
+                openai_url = f"{os.environ['AZURE_OPENAI_ENDPOINT']}/openai/deployments/{os.environ['AZURE_OPENAI_EMBEDDING_DEPLOYMENT']}/embeddings?api-version={os.environ['AZURE_OPENAI_API_VERSION']}"
+                headers = {
+                    "api-key": os.environ["AZURE_OPENAI_KEY"],
+                    "Content-Type": "application/json"
+                }
+                embedding_response = requests.post(openai_url, headers=headers, json={"input": content})
+                embedding_response.raise_for_status()
+                embedding = embedding_response.json()["data"][0]["embedding"]
+
+                # Hacer mergeOrUpload a Azure Search
+                update_url = f"{os.environ['AZURE_SEARCH_ENDPOINT']}/indexes/{os.environ['AZURE_SEARCH_INDEX']}/docs/index?api-version=2023-07-01-Preview"
+                payload = {
+                    "value": [
+                        {
+                            "@search.action": "mergeOrUpload",
+                            "id": doc_id,
+                            "contentVector": embedding
+                        }
+                    ]
+                }
+                upload_response = requests.post(update_url, headers={
+                    "api-key": os.environ["AZURE_SEARCH_KEY"],
+                    "Content-Type": "application/json"
+                }, json=payload)
+                upload_response.raise_for_status()
+
+            except Exception as ee:
+                logging.error(f"❌ Error actualizando embedding para documento {doc.get('id')}: {str(ee)}")
+                errores_embedding.append(doc.get("id"))
+
+        mensaje_extra = " | Embeddings actualizados correctamente"
+        if errores_embedding:
+            mensaje_extra = f" | Errores en embeddings de: {', '.join(errores_embedding)}"
+
         cursor.execute("""
             INSERT INTO Sync_Status (nombre_proceso, ultima_fecha_sync, estado, detalles)
             VALUES (?, GETDATE(), ?, ?)
-        """, "azure-search-to-sql", "OK", f"{insertados} nuevos, {actualizados} actualizados")
+        """, "azure-search-to-sql", "OK", f"{insertados} nuevos, {actualizados} actualizados{mensaje_extra}")
 
         conn.commit()
         conn.close()
@@ -222,7 +271,8 @@ def sync_search_to_sql():
         return JSONResponse({
             "message": "Sincronización completada",
             "documentos_nuevos": insertados,
-            "documentos_actualizados": actualizados
+            "documentos_actualizados": actualizados,
+            "errores_en_embeddings": errores_embedding
         })
 
     except Exception as e:
