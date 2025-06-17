@@ -191,14 +191,15 @@ def sync_search_to_sql():
             etiquetas = ";".join(tags)[:255]
 
             try:
-                raw_url = doc_id.encode("ascii")
-                decoded = base64.urlsafe_b64decode(raw_url + b'=' * (-len(raw_url) % 4)).decode()
-                nombre_archivo = re.findall(r"/([^/]+)$", decoded)
-                nombre = unquote(nombre_archivo[0]) if nombre_archivo else "Autoimportado"
+                decoded_url = base64.urlsafe_b64decode(doc_id + '=' * (-len(doc_id) % 4)).decode("utf-8")
+                url_blob = decoded_url  # ✅ Aquí ya tienes la URL completa para guardar
+                nombre_archivo = re.findall(r"/([^/]+)$", decoded_url)
+                nombre = unquote(nombre_archivo[0]) if nombre_archivo else "Autoimportado nuevo"
             except Exception:
-                nombre = "Autoimportado"
+                url_blob = "ERROR"
+                nombre = "Autoimportado error"
 
-            cursor.execute("SELECT COUNT(*) FROM Documentos WHERE url_blob = ?", doc_id)
+            cursor.execute("SELECT COUNT(*) FROM Documentos WHERE nombre = ?", nombre)
             exists = cursor.fetchone()[0] > 0
 
             if not exists:
@@ -206,14 +207,14 @@ def sync_search_to_sql():
                     INSERT INTO Documentos 
                     (nombre, descripcion, url_blob, fecha_cargue, idioma, resumen, titulo, palabras_clave, etiquetas)
                     VALUES (?, ?, ?, GETDATE(), ?, ?, ?, ?, ?)
-                """, nombre[:255], content, doc_id, language[:10], summary[:1000], title[:500], palabras_clave, etiquetas)
+                """, nombre[:255], content, url_blob, language[:10], summary[:1000], title[:500], palabras_clave, etiquetas)
                 insertados += 1
             else:
                 cursor.execute("""
                     UPDATE Documentos 
                     SET descripcion = ?, idioma = ?, resumen = ?, titulo = ?, palabras_clave = ?, etiquetas = ?, fecha_modificacion = GETDATE()
-                    WHERE url_blob = ?
-                """, content, language[:10], summary[:1000], title[:500], palabras_clave, etiquetas, doc_id)
+                    WHERE nombre = ?
+                """, content, language[:10], summary[:1000], title[:500], palabras_clave, etiquetas, nombre)
                 actualizados += 1
 
         # 👉 Embeddings
@@ -256,14 +257,17 @@ def sync_search_to_sql():
                 logging.error(f"❌ Error actualizando embedding para documento {doc.get('id')}: {str(ee)}")
                 errores_embedding.append(doc.get("id"))
 
-        mensaje_extra = " | Embeddings actualizados correctamente"
+        detalles_msg = f"{insertados} nuevos, {actualizados} actualizados"
         if errores_embedding:
             mensaje_extra = f" | Errores en embeddings de: {', '.join(errores_embedding)}"
+        else:
+            mensaje_extra = " | Embeddings actualizados correctamente"
 
         cursor.execute("""
             INSERT INTO Sync_Status (nombre_proceso, ultima_fecha_sync, estado, detalles)
             VALUES (?, GETDATE(), ?, ?)
-        """, "azure-search-to-sql", "OK", f"{insertados} nuevos, {actualizados} actualizados{mensaje_extra}")
+        """, "azure-search-to-sql", "OK", f"{detalles_msg}{mensaje_extra}")
+
 
         conn.commit()
         conn.close()
