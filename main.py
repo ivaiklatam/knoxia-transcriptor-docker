@@ -269,11 +269,12 @@ def sync_search_to_sql():
 
         detalles_final = " | ".join(log_detalles)[:2000]  # límite por si el campo es corto
 
+        print(f"📝 Detalles_final es: {detalles_final} .")
 
         cursor.execute("""
             INSERT INTO Sync_Status (nombre_proceso, ultima_fecha_sync, estado, detalles)
             VALUES (?, GETDATE(), ?, ?)
-        """, "azure-search-to-sql", "OK", detalles_final)
+        """, "azure-search-to-sql", "OK", detalles_final[:500])
 
 
 
