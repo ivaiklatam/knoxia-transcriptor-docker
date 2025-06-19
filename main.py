@@ -149,6 +149,7 @@ async def run_indexer_eventgrid(request: Request):
 def sync_search_to_sql():
     import re
     try:
+        log_detalles = []
         endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
         key = os.environ["AZURE_SEARCH_KEY"]
         index = os.environ["AZURE_SEARCH_INDEX"]
@@ -192,12 +193,15 @@ def sync_search_to_sql():
 
             try:
                 decoded_url = base64.urlsafe_b64decode(doc_id + '=' * (-len(doc_id) % 4)).decode("utf-8")
-                url_blob = decoded_url  # ✅ Aquí ya tienes la URL completa para guardar
+                url_blob = decoded_url
                 nombre_archivo = re.findall(r"/([^/]+)$", decoded_url)
-                nombre = unquote(nombre_archivo[0]) if nombre_archivo else "Autoimportado nuevo"
-            except Exception:
-                url_blob = "ERROR"
-                nombre = "Autoimportado error"
+                nombre = unquote(nombre_archivo[0]) if nombre_archivo else "Autoimportado"
+            except Exception as e:
+                error_msg = f"❌ Error decodificando ID base64: {doc_id} → {str(e)}"
+                log_detalles.append(error_msg)
+                url_blob = "ERROR 2"
+                nombre = "Autoimportado ERROR 2"
+
 
             cursor.execute("SELECT COUNT(*) FROM Documentos WHERE nombre = ?", nombre)
             exists = cursor.fetchone()[0] > 0
@@ -257,16 +261,19 @@ def sync_search_to_sql():
                 logging.error(f"❌ Error actualizando embedding para documento {doc.get('id')}: {str(ee)}")
                 errores_embedding.append(doc.get("id"))
 
-        detalles_msg = f"{insertados} nuevos, {actualizados} actualizados"
-        if errores_embedding:
-            mensaje_extra = f" | Errores en embeddings de: {', '.join(errores_embedding)}"
-        else:
-            mensaje_extra = " | Embeddings actualizados correctamente"
+        resumen_proceso = f"{insertados} nuevos, {actualizados} actualizados"
+        embedding_msg = f"Errores en embeddings de: {', '.join(errores_embedding)}" if errores_embedding else "Embeddings actualizados correctamente"
+        log_detalles.insert(0, resumen_proceso)
+        log_detalles.append(embedding_msg)
+
+        detalles_final = " | ".join(log_detalles)[:2000]  # límite por si el campo es corto
+
 
         cursor.execute("""
             INSERT INTO Sync_Status (nombre_proceso, ultima_fecha_sync, estado, detalles)
             VALUES (?, GETDATE(), ?, ?)
-        """, "azure-search-to-sql", "OK", f"{detalles_msg}{mensaje_extra}")
+        """, "azure-search-to-sql", "OK", detalles_final)
+
 
 
         conn.commit()
