@@ -192,16 +192,23 @@ def sync_search_to_sql():
             etiquetas = ";".join(tags)[:255]
 
             try:
-                url_blob = doc.get("metadata_storage_path", "")
-                nombre_archivo = re.findall(r"/([^/]+)$", url_blob)
-                nombre = unquote(nombre_archivo[0]) if nombre_archivo else "Autoimportado"
-                if not url_blob:
+                encoded_path = doc.get("metadata_storage_path", "")
+                if not encoded_path:
                     raise ValueError("metadata_storage_path vacío")
+                
+                # Decodificar desde base64
+                decoded_url = base64.b64decode(encoded_path).decode("utf-8")
+                
+                # Extraer nombre del archivo
+                nombre_archivo = re.findall(r"/([^/]+)$", decoded_url)
+                nombre = unquote(nombre_archivo[0]) if nombre_archivo else "Autoimportado 4"
+                url_blob = decoded_url  # para guardar en la tabla
+
             except Exception as e:
-                error_msg = f"❌ Error extrayendo URL y nombre: {doc_id} → {str(e)}"
+                error_msg = f"❌ Error extrayendo URL y nombre err 4: {doc_id} → {str(e)}"
                 log_detalles.append(error_msg)
-                url_blob = "ERROR 3"
-                nombre = "Autoimportado ERROR 3"
+                url_blob = "ERROR 4"
+                nombre = "Autoimportado ERROR 4"
 
 
             cursor.execute("SELECT COUNT(*) FROM Documentos WHERE nombre = ?", nombre)
