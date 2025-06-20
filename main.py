@@ -194,13 +194,13 @@ def sync_search_to_sql():
             try:
                 
                 nombre = doc.get("title")
-                url_blob = f"https://knoxiastorage.blob.core.windows.net/knoxiadocuments/{blob_name}"
+                url_blob = f"https://knoxiastorage.blob.core.windows.net/knoxiadocuments/{nombre}"
 
             except Exception as e:
-                error_msg = f"❌ Error extrayendo URL y nombre err 5: {doc_id} → {str(e)}"
+                error_msg = " Error extrayendo URL y nombre err 5:"
                 log_detalles.append(error_msg)
-                url_blob = "ERROR 4"
-                nombre = "Autoimportado ERROR 4"
+                url_blob = "ERROR 5"
+                nombre = "Autoimportado ERROR 5"
 
 
             cursor.execute("SELECT COUNT(*) FROM Documentos WHERE nombre = ?", nombre)
