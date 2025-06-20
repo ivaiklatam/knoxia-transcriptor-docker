@@ -192,20 +192,12 @@ def sync_search_to_sql():
             etiquetas = ";".join(tags)[:255]
 
             try:
-                encoded_path = doc.get("metadata_storage_path", "")
-                if not encoded_path:
-                    raise ValueError("metadata_storage_path vacío")
                 
-                # Decodificar desde base64
-                decoded_url = base64.b64decode(encoded_path).decode("utf-8")
-                
-                # Extraer nombre del archivo
-                nombre_archivo = re.findall(r"/([^/]+)$", decoded_url)
-                nombre = unquote(nombre_archivo[0]) if nombre_archivo else "Autoimportado 4"
-                url_blob = decoded_url  # para guardar en la tabla
+                nombre = doc.get("title")
+                url_blob = f"https://knoxiastorage.blob.core.windows.net/knoxiadocuments/{blob_name}"
 
             except Exception as e:
-                error_msg = f"❌ Error extrayendo URL y nombre err 4: {doc_id} → {str(e)}"
+                error_msg = f"❌ Error extrayendo URL y nombre err 5: {doc_id} → {str(e)}"
                 log_detalles.append(error_msg)
                 url_blob = "ERROR 4"
                 nombre = "Autoimportado ERROR 4"
