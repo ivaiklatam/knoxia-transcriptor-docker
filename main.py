@@ -192,15 +192,14 @@ def sync_search_to_sql():
             etiquetas = ";".join(tags)[:255]
 
             try:
-                
                 nombre = doc.get("title")
                 url_blob = f"https://knoxiastorage.blob.core.windows.net/knoxiadocuments/{nombre}"
 
             except Exception as e:
-                error_msg = " Error extrayendo URL y nombre err 5:"
+                error_msg = "Error extrayendo URL y nombre"
                 log_detalles.append(error_msg)
-                url_blob = "ERROR 5"
-                nombre = "Autoimportado ERROR 5"
+                url_blob = "URL ERROR"
+                nombre = "Autoimportado con error"
 
 
             cursor.execute("SELECT COUNT(*) FROM Documentos WHERE nombre = ?", nombre)
@@ -209,16 +208,16 @@ def sync_search_to_sql():
             if not exists:
                 cursor.execute("""
                     INSERT INTO Documentos 
-                    (nombre, descripcion, url_blob, fecha_cargue, idioma, resumen, titulo, palabras_clave, etiquetas)
-                    VALUES (?, ?, ?, GETDATE(), ?, ?, ?, ?, ?)
-                """, nombre[:255], content, url_blob, language[:10], summary[:1000], title[:500], palabras_clave, etiquetas)
+                    (nombre, descripcion, url_blob, fecha_cargue, idioma, titulo, palabras_clave)
+                    VALUES (?, ?, ?, GETDATE(), ?, ?, ?)
+                """, nombre[:255], content, url_blob, language[:10], title[:500], palabras_clave)
                 insertados += 1
             else:
                 cursor.execute("""
                     UPDATE Documentos 
-                    SET descripcion = ?, idioma = ?, resumen = ?, titulo = ?, palabras_clave = ?, etiquetas = ?, fecha_modificacion = GETDATE()
+                    SET descripcion = ?, idioma = ?, titulo = ?, palabras_clave = ?, fecha_modificacion = GETDATE()
                     WHERE nombre = ?
-                """, content, language[:10], summary[:1000], title[:500], palabras_clave, etiquetas, nombre)
+                """, content, language[:10], title[:500], palabras_clave, nombre)
                 actualizados += 1
 
         # 👉 Embeddings
